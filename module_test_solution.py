@@ -8,47 +8,39 @@ st.title("Animal Rescue Dispatcher")
 gc = geonamescache.GeonamesCache()
 countries = gc.get_countries()
 cities = [city for city in gc.get_cities().values() if city["population"] >= 1_000_000]
+country_names = sorted(each["name"] for each in countries.values())
 colours = ["red", "blue", "green", "orange", "violet", "gray"]
 
 # LEVEL 1: find the closest city
-# Step 1: pick an animal
-animal = st.selectbox("Which animal needs help?", ["dog", "cat", "bird", "turtle", "rabbit"])
-
-# Step 2: move the pin
-lat = st.slider("Latitude (North / South)", -90.0, 90.0, 0.0)
+animal = st.selectbox("Which animal needs help?", ["dog", "cat", "bird", "turtle", "rabbit"])    # Step 1
+lat = st.slider("Latitude (North / South)", -90.0, 90.0, 0.0)                                    # Step 2
 lon = st.slider("Longitude (East / West)", -180.0, 180.0, 0.0)
-
-# Step 3: how far is a city from the pin?
-def gap(city):
+def gap(city):                                           # Step 3: smaller gap = closer to the pin
     return (city["latitude"] - lat) ** 2 + (city["longitude"] - lon) ** 2
-
-# Step 4: the closest city
-near = min(cities, key=gap)
+near = min(cities, key=gap)                              # Step 4: the city with the smallest gap
 st.success(f"The closest big city is {near['name']}. Its rescue team will help the {animal}!")
 
-# LEVEL 2: country and people
-# Step 5: which country is it, and how many people live there?
-country = countries[near["countrycode"]]
-st.write(f"{near['name']} is in {country['name']}. {near['population']:,} people live there.")
+# LEVEL 2: guess the country, then see the answer
+country = countries[near["countrycode"]]                 # Step 5
+guess = st.selectbox("Guess: which country is that city in?", country_names, index=None)
+if guess:
+    st.write(f"{near['name']} is in {country['name']}. {near['population']:,} people live there.")
+    if guess == country["name"]:
+        st.success("Right!")
+    else:
+        st.error("Not quite!")
 
 # LEVEL 3: rescue regions
-# Step 6: how many regions?
-number_of_regions = st.slider("How many rescue regions?", 2, 6, 3)
+number_of_regions = st.slider("How many rescue regions?", 2, 6, 3)                               # Step 6
+places = [[city["latitude"], city["longitude"]] for city in cities]                              # Step 7
+regions = KMeans(n_clusters=number_of_regions, n_init=10, random_state=0).fit_predict(places)    # Step 8: a region number for each city
+my_region = regions[cities.index(near)]                                                          # Step 9
+st.warning(f"{near['name']} is in the {colours[my_region]} region. Its rescue centre will help the {animal}!")
 
-# Step 7: the places of all the cities
-places = [[city["latitude"], city["longitude"]] for city in cities]
-
-# Step 8: the computer sorts the cities into regions
-regions = KMeans(n_clusters=number_of_regions, n_init=10, random_state=0).fit_predict(places)
-
-# Step 9: which region is the closest city in?
-my_region = regions[cities.index(near)]
-st.warning(f"{near['name']} is in the {colours[my_region]} region. This region has {list(regions).count(my_region)} big cities that share one rescue centre.")
-
-# FINISH
-# Step 10: the map
-world_map = folium.Map(location=[20, 0], zoom_start=2, tiles="Esri.WorldImagery")
-for number in range(len(places)):
-    folium.CircleMarker(places[number], radius=5, color=colours[regions[number]], fill=True, tooltip=cities[number]["name"]).add_to(world_map)
+# FINISH: the map (one world only). Each city is a dot in its region's colour.
+world_map = folium.Map(location=[20, 0], zoom_start=2, min_zoom=1, max_bounds=True, tiles=None)
+folium.TileLayer("Esri.WorldImagery", no_wrap=True, bounds=[[-90, -180], [90, 180]]).add_to(world_map)
+for city, region in zip(cities, regions):
+    folium.CircleMarker([city["latitude"], city["longitude"]], radius=5, color=colours[region], fill=True, tooltip=city["name"]).add_to(world_map)
 folium.Marker([lat, lon], tooltip="Animal found here").add_to(world_map)
 st_folium(world_map, height=450, returned_objects=[])
